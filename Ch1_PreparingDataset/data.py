@@ -1,3 +1,16 @@
+"""
+Chapter 1 - Building domain specific language models
+
+Workflow
+1) Load the dataset into a pandas dataframe.
+2) Use regular expressions to remove elements that are not words such as HTML tags, LaTeX expressions, URLs, digits, line returns, and so on.
+3) Remove missing values for texts
+4) Remove texts that are extremely large or too short to bring any information to the model. We want to keep paragraphs that contain at least a few words and remove the paragraphs that are composed of large numerical tables.
+5) Use a tokenizer to create a version of the original text that is a string of space-separated lowercase tokens
+6) Note that punctuation signs (, . : !) are also represented as tokens.
+7) Export the resulting dataframe into a csv file
+"""
+
 import os
 import pandas as pd
 import numpy as np
