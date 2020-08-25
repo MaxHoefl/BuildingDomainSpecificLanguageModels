@@ -54,20 +54,23 @@ def main(debug=False):
     Preprocesses statexchange data
     """
     if not os.path.exists(os.path.join(DATADIR, DATAFILE)):
+        print("Downloading dataset")
         download_dataset()
 
     data = pd.read_csv(os.path.join(DATADIR, DATAFILE), compression="gzip")
     if debug:
-        data = data.iloc[:100]
+        data = data.sample(frac=1).reset_index(drop=True).iloc[:100]
 
     # Minimum and maximum number of chars allowed in text
     min_char_len = np.percentile(data.text.str.len(), q=1)
     max_char_len = np.percentile(data.text.str.len(), q=99)
     # Clean text
+    print("Cleaning dataset")
     data["text"] = data.text.apply(lambda x: clean(x))
     # Remove NaN text, empty text, text that is too short or too lengthy
     data = data.loc[(~pd.isnull(data.text)) & (data.text.str.len() > min_char_len) & (data.text.str.len() < max_char_len)]
     # Tokenize text
+    print("Tokenizing dataset")
     data["tokens"] = data.text.apply(lambda x: word_tokenize(x.lower()))
     # Submission file
     data.to_csv(os.path.join(DATADIR, "stackexchange_812k_preprocessed.csv"), index=False, header=True)
