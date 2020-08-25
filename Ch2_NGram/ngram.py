@@ -20,6 +20,9 @@ from nltk.util import ngrams
 from collections import defaultdict, Counter
 import Ch1_PreparingDataset.data as ch1data
 from typing import List
+import logging as log
+
+log.basicConfig(level=log.DEBUG)
 
 
 def split_train_test(data):
@@ -39,6 +42,13 @@ class NGramModel(object):
         self.num_unique_tokens = None
 
     def init_prefix_word_counts(self, data : pd.DataFrame):
+        """
+        Parameters
+        ----------
+        data : pandas.DataFrame
+            Must contain column `tokens` which is the tokenized version of the `text` column.
+            DataFrame can be provided by the `main` method in module `Ch1_PreparingDataset.data`
+        """
         counts = defaultdict(Counter)
         # create dictionary of prefix -> word frequencies (which are stored in a Counter object)
         for tokens in data.tokens:
@@ -56,6 +66,16 @@ class NGramModel(object):
         return counts
 
     def prob_word_given_prefix(self, word : str, prefix : tuple, laplace_smoothing : float = 1e-5) -> float:
+        """
+        Parameters
+        ----------
+        word : str
+            Token for which conditional probability is computed
+        prefix : tuple
+            History of `word` we condition on
+        laplace_smoothing : float
+            Add-k parameter for smoothing of MLE for conditional probability of word given prefix
+        """
         assert self.ngram_counts is not None, "Initialize self.ngram_counts using init_prefix_word_counts(data)"
         assert laplace_smoothing > 0, "Laplace smoothing parameter must be positive (else division by zero if prefix or word are OOV)"
         counts = self.ngram_counts
@@ -79,6 +99,21 @@ class NGramModel(object):
 
     def generate_text(self, input_ngram : tuple, length : int = 20,
                       laplace_smoothing : float = 1e-5, temperature_sampling : float = 1) -> List[str]:
+        """
+        Parameters
+        ----------
+        input_ngram : List[str]
+            Starting n-gram from from which first new word is generated. Length of n-gram has to match
+            `self.ngram`
+        length : int
+            Maximum size of generated text (token count)
+        laplace_smoothing : float
+            Add-k parameter for smoothing of MLE for conditional probability of word given prefix
+        temperature_sampling : float
+            If 1, original word-prefix probabilities are used
+            If param goes to zero, more frequest words are boosted
+            If param goes to infinity, all word-prefix probabilities are equal
+        """
         assert self.ngram_counts is not None, "Initialize self.ngram_counts using init_prefix_word_counts(data)"
         all_tokens = list(self.tokens)
         curr_ngram = input_ngram
@@ -98,23 +133,40 @@ class NGramModel(object):
             curr_ngram = tuple(generated_text[-self.n_gram:])
         return generated_text
 
-    def sentence_probability(self, sentence : str) -> float:
-        tokens = sentence.split(" ")
-        assert len(tokens) > self.n_gram, "Sentence must contain at least " + str(self.n_gram) + " words"
+    def sentence_probability(self, sentence_tokens : List[str]) -> float:
+        """
+        Parameters
+        ----------
+        sentence_tokens : List[str]
+            List of tokens in sentence
+        """
+        assert len(sentence_tokens) > self.n_gram, "Sentence must contain at least " + str(self.n_gram) + " words"
         sen_prob = 1
-        for i, w in enumerate(tokens[self.n_gram:]):
-            sen_prob *= self.prob_word_given_prefix(word=w, prefix=tuple(tokens[i-self.n_gram+1: i-1]))
+        for i, w in enumerate(sentence_tokens[self.n_gram:]):
+            sen_prob *= self.prob_word_given_prefix(word=w, prefix=tuple(sentence_tokens[i-self.n_gram+1: i-1]))
         return sen_prob
 
-    def log_sentence_perplexity(self, sentence : str):
-        tokens = sentence.split(" ")
-        len_sentence = len(tokens)
+    def log_sentence_perplexity(self, sentence_tokens : List[str]):
+        """
+        Parameters
+        ----------
+        sentence_tokens : List[str]
+            List of tokens in sentence
+        """
+        len_sentence = len(sentence_tokens)
+        assert len_sentence >= self.n_gram, f"Sentence {sentence_tokens} is too short to compute perplexity."
         perplexity = 0
-        for i, w in enumerate(tokens[self.n_gram:]):
-            perplexity -= np.log(self.prob_word_given_prefix(word=w, prefix=tuple(tokens[i-self.n_gram+1: i-1])))
+        for i, w in enumerate(sentence_tokens[self.n_gram:]):
+            perplexity -= np.log(self.prob_word_given_prefix(word=w, prefix=tuple(sentence_tokens[i-self.n_gram+1: i-1])))
         return perplexity / len_sentence
 
-    def log_corpus_perplexity(self, corpus : List[str]) -> float:
+    def log_corpus_perplexity(self, corpus : List[List[str]]) -> float:
+        """
+        Parameters
+        ----------
+        corpus : List[List[str]]
+            List of tokenized sentences in corpus
+        """
         perplexity = 0
         for sentence in corpus:
             perplexity += self.log_sentence_perplexity(sentence)
@@ -123,11 +175,12 @@ class NGramModel(object):
 
 if __name__ == '__main__':
     model = NGramModel(n_gram=3)
-    data = ch1data.main(debug=True)
+    data = ch1data.main(debug=False, keep_only_english_words=True)
     train, test = split_train_test(data)
     model.init_prefix_word_counts(data=train)
-    text = model.generate_text(input_ngram=("i","am"), laplace_smoothing=1e-5)
-    print(text)
-    print(model.sentence_probability(' '.join(text)))
-    print(model.log_sentence_perplexity(' '.join(text)))
-    print(model.log_corpus_perplexity(train))
+    text = model.generate_text(input_ngram=("if","it"), laplace_smoothing=1e-10)
+    log.info(f"Generated text {text}")
+    log.info(f"Sentence probability: {model.sentence_probability(text)}")
+    log.info(f"Sentence perplexity: {model.log_sentence_perplexity(text)}")
+    log.info(f"Training corpus perplexity (N={len(train)}): {model.log_corpus_perplexity(train.tokens.values)}")
+    log.info(f"Test corpus perplexity (N={len(test)}): {model.log_corpus_perplexity(test.tokens.values)}")
