@@ -22,7 +22,7 @@ import Ch1_PreparingDataset.data as ch1data
 from typing import List
 import logging as log
 
-log.basicConfig(level=log.DEBUG)
+log.basicConfig(level=log.DEBUG, format='%(asctime)s %(levelname)s %(message)s')
 
 
 def split_train_test(data):

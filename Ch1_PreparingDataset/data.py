@@ -15,21 +15,24 @@ import os
 import pandas as pd
 import numpy as np
 import re
+import nltk
 from nltk.tokenize import word_tokenize
 from nltk.corpus import words
 import urllib
 import logging as log
+import pickle
 
 CURRDIR = os.path.dirname(__file__)
 REPODIR = os.path.dirname(CURRDIR)
 DATADIR = os.path.join(REPODIR, "data")
 DLLINK = "https://liveproject-resources.s3.amazonaws.com/116/other/stackexchange_812k.csv.gz"
 DATAFILE = "stackexchange_812k.csv.gz"
-DATAFILE_OUTPUT = "stackexchange_812k_preprocessed.csv"
+CSVFILE_OUTPUT = "stackexchange_812k_preprocessed.csv"
+PICKLEFILE_OUTPUT = "stackexchange_812k_preprocessed.pkl"
 if not os.path.exists(DATADIR):
     os.makedirs(DATADIR)
 
-log.basicConfig(level=log.DEBUG)
+log.basicConfig(level=log.DEBUG, format='%(asctime)s %(levelname)s %(message)s')
 
 
 def download_dataset():
@@ -54,18 +57,27 @@ def clean(x):
     return x
 
 
-def load_preprocessed_data():
-    data = pd.read_csv(os.path.join(DATADIR, DATAFILE_OUTPUT))
+def load_preprocessed_data(load_from: str = 'pickle'):
+    assert load_from in ['csv', 'pickle']
+    if load_from == 'csv':
+        data = pd.read_csv(os.path.join(DATADIR, CSVFILE_OUTPUT))
+        data = data.loc[~pd.isna(data.tokens)]
+        # recover tokens lists from string in csv
+        data["tokens"] = data.tokens.apply(lambda x: x[2:-2].split("', '"))
+    else:
+        with open(os.path.join(DATADIR, PICKLEFILE_OUTPUT), 'rb') as f:
+            data = pickle.load(f)
+    assert isinstance(data, pd.DataFrame)
     assert "tokens" in data.columns, "Invalid datafile. Missing column 'tokens'. Re-generated file using main()"
-    data["tokens"] = data.tokens.apply(lambda x : x[2:-2].split("', '"))
     return data
 
-def main(debug=False, keep_only_english_words=False):
+
+def main(debug: bool = False, keep_only_english_words: bool = False):
     """
     Preprocesses statexchange data
     """
-    if os.path.exists(os.path.join(DATADIR, DATAFILE_OUTPUT)):
-        if os.path.isfile(os.path.join(DATADIR, DATAFILE_OUTPUT)):
+    if os.path.exists(os.path.join(DATADIR, CSVFILE_OUTPUT)):
+        if os.path.isfile(os.path.join(DATADIR, CSVFILE_OUTPUT)):
             return load_preprocessed_data()
 
     if not os.path.exists(os.path.join(DATADIR, DATAFILE)):
@@ -74,7 +86,7 @@ def main(debug=False, keep_only_english_words=False):
 
     data = pd.read_csv(os.path.join(DATADIR, DATAFILE), compression="gzip")
     if debug:
-        data = data.sample(frac=1).reset_index(drop=True).iloc[:100]
+        data = data.sample(frac=1).reset_index(drop=True).iloc[:1000]
 
     # Minimum and maximum number of chars allowed in text
     min_char_len = np.percentile(data.text.str.len(), q=1)
@@ -82,19 +94,25 @@ def main(debug=False, keep_only_english_words=False):
     # Clean text
     log.info("Cleaning dataset")
     data["text"] = data.text.apply(lambda x: clean(x))
-    # Remove NaN text, empty text, text that is too short or too lengthy
-    data = data.loc[(~pd.isnull(data.text)) & (data.text.str.len() > min_char_len) & (data.text.str.len() < max_char_len)]
+    # Remove NaN text, NaN category, empty text, text that is too short or too lengthy
+    data = data.loc[(~pd.isnull(data.text)) & (~pd.isnull(data.category)) &
+                    (data.text.str.len() > min_char_len) & (data.text.str.len() < max_char_len)]
     # Tokenize text
     log.info("Tokenizing dataset")
     data["tokens"] = data.text.apply(lambda x: word_tokenize(x.lower()))
+    data = data.loc[~pd.isna(data.tokens)]
     # If flat is set only keep english word tokens
     if keep_only_english_words:
+        nltk.download('words')
         english_words = set(words.words())
-        data["tokens"] = data.tokens.apply(lambda t: [w for w in t if w in english_words])
+        data["tokens"] = data.tokens.apply(lambda t: [w for w in t if (w in english_words) and w.isalpha()])
+    # Pickle file
+    with open(os.path.join(DATADIR, PICKLEFILE_OUTPUT), 'wb') as f:
+        pickle.dump(data, f)
     # Submission file
-    data.to_csv(os.path.join(DATADIR, DATAFILE_OUTPUT), index=False, header=True)
+    data.to_csv(os.path.join(DATADIR, CSVFILE_OUTPUT), index=False, header=True)
     return data
 
 
 if __name__ == '__main__':
-    main(debug=False)
+    main(debug=False, keep_only_english_words=False)
